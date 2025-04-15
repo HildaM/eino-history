@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
+	"os"
 	"time"
 
-	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"github.com/hildam/eino-history/conf"
 	"github.com/hildam/eino-history/eino"
@@ -16,10 +17,10 @@ import (
 )
 
 // 初始化 MySQL 历史记录
-var ehMySQL = eino.NewDefaultEinoHistory("root:123456@tcp(127.0.0.1:3306)/chat_history?charset=utf8mb4&parseTime=True&loc=Local", "debug")
+var ehMySQL = eino.NewDefaultEinoHistory("root:123456@tcp(127.0.0.1:3306)/chat_history?charset=utf8mb4&parseTime=True&loc=Local", "info")
 
 // 初始化 Redis 历史记录 (Redis URL 格式: redis://user:password@localhost:6379/0)
-var ehRedis = eino.NewEinoHistoryWithProvider("redis://localhost:6379/0", provider.TypeRedis, true, "debug")
+var ehRedis = eino.NewEinoHistoryWithProvider("redis://localhost:6379/0", provider.TypeRedis, true, "info")
 
 func main() {
 	// 确保程序结束时关闭数据库连接
@@ -34,43 +35,143 @@ func main() {
 
 	ctx := context.Background()
 	if err := conf.Init(); err != nil {
-		log.Fatalf("init config failed, err=%v", err)
+		log.Fatalf("初始化配置失败: %v", err)
 	}
 
-	var convID = uuid.NewString() // 模拟一个会话id
-	cm := createLLMChatModel(ctx)
-	// 模拟用户连续问问题
-	messList := []string{
-		"我数学不好",
-		"数学不好可以编程么",
-		"今天深圳天气怎么样？",
-		"刚才我说我什么科目学得不好来着？请思考之前的对话",
+	// 解析命令行参数
+	if len(os.Args) < 2 {
+		printUsage()
+		return
 	}
 
-	// 演示使用不同的存储后端
-	log.Println("Using MySQL storage:")
-	processConversation(ctx, cm, convID, messList, ehMySQL)
+	// 根据参数执行不同的示例
+	switch os.Args[1] {
+	case "simple":
+		// 简单聊天示例
+		log.Println("执行简单聊天示例 (MySQL)...")
+		SimpleChat(ctx, ehMySQL)
 
-	// 使用 Redis 作为存储后端
-	convID = uuid.NewString() // 新的会话 ID
-	log.Println("\nUsing Redis storage:")
-	processConversation(ctx, cm, convID, messList, ehRedis)
+	case "redis-simple":
+		// 使用Redis的简单聊天示例
+		log.Println("执行简单聊天示例 (Redis)...")
+		SimpleChat(ctx, ehRedis)
 
-	// 演示附件功能
-	log.Println("\nAttachment demonstration:")
-	attachmentExample()
+	case "conversation":
+		// 对话管理示例
+		log.Println("执行对话管理示例 (MySQL)...")
+		ConversationManagement(ctx, ehMySQL)
+
+	case "redis-conversation":
+		// 使用Redis的对话管理示例
+		log.Println("执行对话管理示例 (Redis)...")
+		ConversationManagement(ctx, ehRedis)
+
+	case "attachment":
+		// 附件功能示例
+		log.Println("执行附件功能示例...")
+		AttachmentExample()
+
+	case "all":
+		// 运行所有示例
+		log.Println("执行所有示例...")
+
+		log.Println("\n1. 简单聊天示例 (MySQL)")
+		SimpleChat(ctx, ehMySQL)
+
+		log.Println("\n2. 简单聊天示例 (Redis)")
+		SimpleChat(ctx, ehRedis)
+
+		log.Println("\n3. 对话管理示例 (MySQL)")
+		ConversationManagement(ctx, ehMySQL)
+
+		log.Println("\n4. 对话管理示例 (Redis)")
+		ConversationManagement(ctx, ehRedis)
+
+		log.Println("\n5. 附件功能示例")
+		AttachmentExample()
+
+	default:
+		fmt.Printf("未知的示例: %s\n", os.Args[1])
+		printUsage()
+	}
 }
 
-func createLLMChatModel(ctx context.Context) model.ChatModel {
-	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-		Model:   conf.GetCfg().DeekSeek.ModelID,
-		APIKey:  conf.GetCfg().DeekSeek.APIKey,
-		BaseURL: conf.GetCfg().DeekSeek.BaseURL,
-	})
-	if err != nil {
-		log.Fatalf("create openai chat model failed, err=%v", err)
+// printUsage 打印使用帮助
+func printUsage() {
+	fmt.Println("使用方法: go run *.go <示例名称>")
+	fmt.Println("可用的示例:")
+	fmt.Println("  simple            - 简单聊天示例 (MySQL)")
+	fmt.Println("  redis-simple      - 简单聊天示例 (Redis)")
+	fmt.Println("  conversation      - 对话管理示例 (MySQL)")
+	fmt.Println("  redis-conversation - 对话管理示例 (Redis)")
+	fmt.Println("  attachment        - 附件功能示例")
+	fmt.Println("  all               - 运行所有示例")
+}
+
+// processConversationWithTopic 处理带主题的对话
+func processConversationWithTopic(ctx context.Context, topics, messList []string, historyStore *eino.History) {
+	cm := createLLMChatModel(ctx)
+
+	for i, topic := range topics {
+		convID := uuid.NewString()
+
+		// 创建对话
+		conv := &models.Conversation{
+			ConvID:    convID,
+			Title:     topic,
+			CreatedAt: time.Now().Unix(),
+			UpdatedAt: time.Now().Unix(),
+		}
+
+		// 设置对话元数据
+		settings := map[string]interface{}{
+			"topic": topic,
+			"index": i,
+		}
+		settingsJSON, _ := json.Marshal(settings)
+		conv.Settings = settingsJSON
+
+		// 保存对话
+		if err := historyStore.CreateConversation(conv); err != nil {
+			log.Printf("创建对话失败: %v", err)
+			continue
+		}
+
+		log.Printf("开始对话: %s (ID: %s)", topic, convID)
+
+		// 处理对话
+		processConversation(ctx, cm, convID, messList, historyStore)
+
+		// 更新对话状态
+		conv.UpdatedAt = time.Now().Unix()
+		if err := historyStore.UpdateConversation(conv); err != nil {
+			log.Printf("更新对话状态失败: %v", err)
+		}
+
+		// 演示归档和置顶功能
+		if i == 0 {
+			// 归档第一个对话
+			if err := historyStore.ArchiveConversation(convID); err != nil {
+				log.Printf("归档对话失败: %v", err)
+			}
+		} else if i == 1 {
+			// 置顶第二个对话
+			if err := historyStore.PinConversation(convID); err != nil {
+				log.Printf("置顶对话失败: %v", err)
+			}
+		}
+
+		// 获取并显示对话列表
+		convs, err := historyStore.ListConversations(0, 10)
+		if err != nil {
+			log.Printf("获取对话列表失败: %v", err)
+		} else {
+			log.Printf("当前对话列表:")
+			for _, c := range convs {
+				log.Printf("- %s (ID: %s, 归档: %v, 置顶: %v)", c.Title, c.ConvID, c.IsArchived, c.IsPinned)
+			}
+		}
 	}
-	return chatModel
 }
 
 // processConversation 处理一个完整的对话，使用指定的历史记录存储
@@ -95,56 +196,6 @@ func processConversation(ctx context.Context, cm model.ChatModel, convID string,
 
 		log.Printf("result: %+v\n\n", result)
 	}
-}
-
-// generateResponse uses the chat model to generate a response
-func generateResponse(ctx context.Context, cm model.ChatModel, messages []schema.Message) *schema.Message {
-	// Convert []schema.Message to []*schema.Message for the Generate method
-	var messagePtrs []*schema.Message
-	for i := range messages {
-		messagePtrs = append(messagePtrs, &messages[i])
-	}
-
-	resp, err := cm.Generate(ctx, messagePtrs)
-	if err != nil {
-		log.Printf("chat failed: %v", err)
-		return &schema.Message{
-			Role:    schema.Assistant,
-			Content: "Sorry, I encountered an error while processing your request.",
-		}
-	}
-
-	return resp
-}
-
-// createMessagesWithStore 使用指定的历史记录存储创建消息列表
-func createMessagesWithStore(ctx context.Context, convID, userInput string, historyStore *eino.History) ([]schema.Message, error) {
-	// 从指定的历史记录中获取之前的消息
-	historyMessages, err := historyStore.GetHistory(convID, 100)
-	if err != nil {
-		return nil, err
-	}
-
-	// 添加新的用户消息
-	userMessage := schema.Message{
-		Role:    schema.User,
-		Content: userInput,
-	}
-
-	// 保存用户消息到指定的历史记录中
-	err = historyStore.SaveMessage(&userMessage, convID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 合并历史消息和新消息
-	var allMessages []schema.Message
-	for _, msg := range historyMessages {
-		allMessages = append(allMessages, *msg)
-	}
-	allMessages = append(allMessages, userMessage)
-
-	return allMessages, nil
 }
 
 // attachmentExample 演示如何使用附件功能

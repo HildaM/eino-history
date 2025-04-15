@@ -126,3 +126,75 @@ func (x *History) GetHistory(convID string, limit int) (list []*schema.Message, 
 	list = messageList2ChatHistory(mess)
 	return
 }
+
+// CreateConversation 创建新对话
+// 参数:
+//   - conv: 要创建的对话对象
+//
+// 返回:
+//   - error: 如果创建过程中发生错误
+func (x *History) CreateConversation(conv *models.Conversation) error {
+	return x.cr.Create(conv)
+}
+
+// UpdateConversation 更新对话
+// 参数:
+//   - conv: 要更新的对话对象
+//
+// 返回:
+//   - error: 如果更新过程中发生错误
+func (x *History) UpdateConversation(conv *models.Conversation) error {
+	return x.cr.Update(conv)
+}
+
+// ArchiveConversation 归档对话
+// 参数:
+//   - convID: 要归档的对话ID
+//
+// 返回:
+//   - error: 如果归档过程中发生错误
+func (x *History) ArchiveConversation(convID string) error {
+	return x.cr.Archive(convID)
+}
+
+// UnarchiveConversation 取消归档对话
+// 参数:
+//   - convID: 要取消归档的对话ID
+//
+// 返回:
+//   - error: 如果取消归档过程中发生错误
+func (x *History) UnarchiveConversation(convID string) error {
+	return x.cr.Unarchive(convID)
+}
+
+// PinConversation 置顶对话
+// 参数:
+//   - convID: 要置顶的对话ID
+//
+// 返回:
+//   - error: 如果置顶过程中发生错误
+func (x *History) PinConversation(convID string) error {
+	return x.cr.Pin(convID)
+}
+
+// UnpinConversation 取消置顶对话
+// 参数:
+//   - convID: 要取消置顶的对话ID
+//
+// 返回:
+//   - error: 如果取消置顶过程中发生错误
+func (x *History) UnpinConversation(convID string) error {
+	return x.cr.Unpin(convID)
+}
+
+// ListConversations 获取对话列表
+// 参数:
+//   - offset: 分页偏移量
+//   - limit: 返回对话数量上限
+//
+// 返回:
+//   - []*models.Conversation: 对话列表
+//   - error: 如果获取过程中发生错误
+func (x *History) ListConversations(offset, limit int) ([]*models.Conversation, error) {
+	return x.cr.List(offset, limit)
+}
